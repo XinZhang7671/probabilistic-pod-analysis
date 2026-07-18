@@ -1,0 +1,126 @@
+---
+title: "transcriptomics"
+format: html
+editor: source
+---
+
+# Toxprofiler
+
+## Read in data
+
+```{r}
+# Load packages
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+```
+
+
+```{r}
+
+sheetnames <- readxl::excel_sheets("data/Uncertainty_Analysis/conazole_transcriptomics_filter_180725_BI.xlsx")
+
+df_trans <- do.call('rbind',
+                    lapply(sheetnames[4:15],function(cnam){
+read_excel("data/Uncertainty_Analysis/conazole_transcriptomics_filter_180725_BI.xlsx",
+                      sheet = cnam) %>%
+  select(TREATMENT, Probe_ID, Best_BMC_Freemedia, Best_BMDU_free_media, Best_BMDL_free_media, DEGs_ratio) %>%
+  rename(
+    Compound = TREATMENT,
+    Features = Probe_ID,
+    BMC = Best_BMC_Freemedia,
+    BMDU = Best_BMDU_free_media,
+    BMDL = Best_BMDL_free_media,
+    w = DEGs_ratio
+  ) %>%
+  mutate(m = log(BMC), s = (log(BMDU) - log(BMDL))/ (2*qnorm(0.95))) %>%
+  mutate(Assay = "Transcriptomics")
+}
+))
+
+```
+
+
+## Aggregation over features
+
+```{r}
+source("selfmade_functions.R")
+```
+
+
+```{r}
+#hist(df_trans$w)
+df_pf <- get_pf(df_trans, wth = 0)
+write.csv(df_pf,file="Trans_pf.csv")
+(df_pod <- calc_pod(pinvitro = 0.05, df_trans, df_pf)) # set by the dm
+write.csv(df_pod,file="Trans_comp.csv")
+```
+
+
+```{r}
+cnam = "Epoxiconazole"
+plot_pao(cnam, df_assay=df_trans, df_pf, wth = NULL, legend = FALSE)
+df_pf_02 <- get_pf(df_trans, wth = 0.1)
+plot_pao(cnam, df_assay=df_trans, df_pf_02, wth = 0.1, legend = FALSE, saveplot =FALSE)
+
+
+```
+
+
+
+```{r}
+cnam = "Fenbuconazol"
+
+plot_pao(cnam, df_assay=df_trans, df_pf, wth = NULL, legend = FALSE)
+df_pf_02 <- get_pf(df_trans, wth = 0.1)
+plot_pao(cnam, df_assay=df_trans, df_pf_02, wth = 0.1, legend = FALSE, saveplot =FALSE)
+
+```
+
+
+```{r}
+plot_pod(cnam,df_pod,df_pf)
+```
+
+```{r}
+lapply(unique(df_trans$Compound),plot_pao,df_assay=df_trans, df_pf, legend = FALSE, wth = NULL)
+```
+
+```{r}
+lapply(unique(df_trans$Compound),plot_pod,df_pod,df_pf)
+```
+
+
+
+```{r}
+wth_s <- quantile(df_trans$w,probs=c(0.01, 0.1, 0.2, 0.4, 0.5))
+
+pod_w <- do.call('rbind',lapply(1:length(wth_s),function(j){
+df_pf <- get_pf(df_trans, wth = wth_s[j])
+df_pod <- calc_pod(pinvitro = 0.05, df_trans, df_pf)
+df_pod$wth = wth_s[j]
+return(df_pod)
+}))
+
+pod_w %>%
+  group_by(Compound)%>%
+  summarise(diff = max(pPoD)-min(pPoD)) %>%
+  select(Compound, diff)
+
+
+```
+
+
+
+```{r}
+ggplot(pod_w,aes(x=wth,y=pPoD, group = Compound, color = Compound)) +
+  geom_point() +
+  geom_line() +
+  labs(title="Probabilistic PoD over different cutoffs for DEGs ratio",
+       subtitle = df_pf$Assay[1], 
+       x = "smallest DEGs ratio")
+ggsave("transcriptomics_w.jpg")
+```
+
